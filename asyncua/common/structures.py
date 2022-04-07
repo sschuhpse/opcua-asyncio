@@ -105,10 +105,30 @@ class Field(object):
 
     __repr__ = __str__
 
+def compare_model(a,b):
+    if isinstance(a,EnumType) and isinstance(b,Struct):
+        return True
+    if isinstance(a,Struct) and isinstance(b,Struct):
+        if a.name in [x.uatype for x in b.fields]:
+            return True
+    return False
 
 class StructGenerator(object):
     def __init__(self):
         self.model = []
+
+    def sort_model(self):
+        #TODO: change algorithm to efficient topological sort algorithm
+        for z in range(len(self.model)):
+            stable = True
+            for x in range(len(self.model)):
+                for y in range(len(self.model)):
+                    if x != y:
+                        if compare_model(self.model[x],self.model[y]) and x > y or compare_model(self.model[y],self.model[x])and y > x:
+                            self.model[x], self.model[y] = self.model[y], self.model[x]
+                            stable = False
+            if stable:
+                return z
 
     def make_model_from_string(self, xml):
         obj = ET.fromstring(xml)
@@ -141,7 +161,7 @@ class StructGenerator(object):
                 for xmlfield in child:
                     if xmlfield.tag.endswith("Field"):
                         name = xmlfield.get("Name")
-                        if name.startswith("NoOf"):
+                        if name.startswith("NoOf") or name.endswith("_Size"):
                             array = True
                             continue
                         field = Field(clean_name(name))
@@ -219,6 +239,7 @@ async def load_type_definitions(server, nodes=None):
         generator = StructGenerator()
         generators.append(generator)
         generator.make_model_from_string(xml)
+        generator.sort_model()
         # generate and execute new code on the fly
         generator.get_python_classes(structs_dict)
         # same but using a file that is imported. This can be useful for debugging library
@@ -279,6 +300,8 @@ def _generate_python_class(model, env=None):
         code = element.get_code()
         try:
             exec(code, env)
+            x = env['ua']
+            setattr(x,element.name,env[element.name])
         except Exception:
             _logger.exception("Failed to execute auto-generated code from UA datatype: %s", code)
             raise
